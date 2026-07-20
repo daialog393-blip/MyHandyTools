@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>銀行・支店検索（API＋カナ対応）</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; line-height: 1.6; }
+        .container { max-width: 500px; margin: 0 auto; }
+        .search-item { cursor: pointer; padding: 8px; border-bottom: 1px solid #ccc; background: #fff; }
+        .search-item:hover { background-color: #f5f5f5; }
+        input { padding: 10px; width: 90%; margin-bottom: 5px; font-size: 16px; border: 1px solid #ccc; border-radius: 4px; }
+        #bankList { border: 1px solid #ccc; max-height: 150px; overflow-y: auto; background: #fff; margin-bottom: 20px; }
+        #branchList { padding: 10px; border: 1px solid #ccc; background: #fafafa; min-height: 50px; border-radius: 4px; }
+        h3 { margin-top: 20px; color: #333; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h3>銀行名を入力すると候補が出る（API版）</h3>
+    <input id="bankInput" placeholder="銀行名を入力（例: みずほ / 三菱 / 三井）" oninput="searchBank()">
+    <div id="bankList"></div>
+
+    <h3>支店一覧</h3>
+    <div id="branchList">ここに支店一覧が表示されます</div>
+</div>
+
+<script>
+// ★ 全角カタカナ → 半角ｶﾅ変換（完璧版：小文字・濁点・長音・スペースをすべて網羅）
+function toHankakuKana(str) {
+    if (!str) return "";
+    
+    // 2文字で1文字（濁点・半濁点）になるものを最優先で置換
+    const map2 = {
+        'ガ':'ｶﾞ','ギ':'ｷﾞ','グ':'ｸﾞ','ゲ':'ｹﾞ','ゴ':'ｺﾞ',
+        'ザ':'ｻﾞ','ジ':'ｼﾞ','ズ':'ｽﾞ','ゼ':'ｾﾞ','ゾ':'ｿﾞ',
+        'ダ':'ﾀﾞ','ヂ':'ﾁﾞ','ヅ':'ﾂﾞ','デ':'ﾃﾞ','ド':'ﾄﾞ',
+        'バ':'ﾊﾞ','ビ':'ﾋﾞ','ブ':'ﾌﾞ','ベ':'ﾍﾞ','ボ':'ﾎﾞ',
+        'パ':'ﾊﾟ','ピ':'ﾋﾟ','プ':'ﾌﾟ','ペ':'ﾍﾟ','ポ':'ﾎﾟ','ヴ':'ｳﾞ'
+    };
+    
+    // 1文字の置換（小文字・長音・全角スペースも含む）
+    const map1 = {
+        'ア':'ｱ','イ':'ｲ','ウ':'ｳ','エ':'ｴ','オ':'ｵ',
+        'カ':'ｶ','キ':'ｷ','ク':'ｸ','ケ':'ｹ','コ':'ｺ',
+        'サ':'ｻ','シ':'ｼ','ス':'ｽ','セ':'ｾ','ソ':'ｿ',
+        'タ':'ﾀ','チ':'ﾁ','ツ':'ﾂ','テ':'ﾃ','ト':'ﾄ',
+        'ナ':'ﾅ','ニ':'ﾆ','ヌ':'ﾇ','ネ':'ﾈ','ノ':'ﾉ',
+        'ハ':'ﾊ','ヒ':'ﾋ','フ':'ﾌ','ヘ':'ﾍ','ホ':'ﾎ',
+        'マ':'ﾏ','ミ':'ﾐ','ム':'ﾑ','メ':'ﾒ','モ':'ﾓ',
+        'ヤ':'ﾔ','ユ':'ﾕ','ヨ':'ﾖ',
+        'ラ':'ﾗ','リ':'ﾘ','ル':'ﾙ','レ':'ﾚ','ロ':'ﾛ',
+        'ワ':'ﾜ','ヲ':'ｦ','ン':'ﾝ',
+        'ァ':'ｧ','ィ':'ｨ','ゥ':'ｩ','ェ':'ｪ','ォ':'ｫ',
+        'ッ':'ｯ','ャ':'ｬ','ュ':'ｭ','ョ':'ｮ',
+        'ー':'ｰ','－':'ｰ','　':' '
+    };
+
+    // 最初に濁点付きの2文字の塊を変換
+    let reg2 = new RegExp(Object.keys(map2).join('|'), 'g');
+    let result = str.replace(reg2, match => map2[match]);
+
+    // 次に1文字のカタカナを変換
+    let reg1 = new RegExp(Object.keys(map1).join('|'), 'g');
+    result = result.replace(reg1, match => map1[match]);
+
+    return result;
+}
+
+// ★ 銀行検索（自動で半角カナ変換して1行表示）
+async function searchBank() {
+    const keyword = document.getElementById("bankInput").value.trim();
+    const bankListDiv = document.getElementById("bankList");
+
+    if (!keyword) {
+        bankListDiv.innerHTML = "";
+        return;
+    }
+
+    try {
+        const response = await fetch(
+            `https://bank.teraren.com/banks/search.json?name=${encodeURIComponent(keyword)}`
+        );
+        const banks = await response.json();
+
+        let html = "";
+        banks.forEach(bank => {
+            const kana = toHankakuKana(bank.kana);
+            html += `
+                <div class="search-item"
+                     onclick="selectBank('${bank.code}','${bank.name}')">
+                    ${bank.name}（${bank.code}） <small>${kana}</small>
+                </div>`;
+        });
+
+        bankListDiv.innerHTML = html;
+
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+// ★ 支店一覧（自動で半角カナ変換して1行表示）
+async function selectBank(bankCode, bankName) {
+    document.getElementById("bankInput").value = `${bankName}（${bankCode}）`;
+    document.getElementById("bankList").innerHTML = "";
+    document.getElementById("branchList").innerHTML = "データを全件読み込み中...";
+
+    try {
+        let allBranches = [];
+        let page = 1;
+        let hasMore = true;
+
+        while (hasMore) {
+            const response = await fetch(
+                `https://bank.teraren.com/banks/${bankCode}/branches.json?page=${page}`
+            );
+            const branches = await response.json();
+
+            if (branches && branches.length > 0) {
+                allBranches = allBranches.concat(branches);
+                page++;
+            } else {
+                hasMore = false;
+            }
+            
+            if (page > 30) break;
+        }
+
+        let html = `<h4>${bankName} の支店一覧 (${allBranches.length}件)</h4>`;
+
+        allBranches.forEach(branch => {
+            const kana = toHankakuKana(branch.kana);
+            html += `
+                <div style="padding:6px;border-bottom:1px solid #eee;background:#fff;">
+                    ${branch.name}（${branch.code}） <small>${kana}</small>
+                </div>`;
+        });
+
+        document.getElementById("branchList").innerHTML = html;
+
+    } catch (e) {
+        console.error(e);
+        document.getElementById("branchList").innerHTML = "支店一覧を取得できませんでした。";
+    }
+}
+</script>
+
+</body>
+</html>
